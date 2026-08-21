@@ -1,6 +1,6 @@
 # English-to-Spanish RNN Machine Translation
 
-An English-to-Spanish machine translation system built with PyTorch, PyTorch Lightning, SentencePiece, Weights & Biases, and `uv`.
+An English-to-Spanish neural machine translation system implemented with PyTorch, PyTorch Lightning, SentencePiece, Weights & Biases, and `uv`.
 
 The model uses:
 
@@ -8,18 +8,20 @@ The model uses:
 - Bahdanau additive attention;
 - a two-layer GRU decoder;
 - teacher forcing during training;
-- greedy autoregressive decoding during inference.
+- Beam Search during inference;
+- length normalization and consecutive-token repetition blocking.
 
 ## Dataset
 
 The project uses English-Spanish sentence pairs from the [Tatoeba corpus distributed by ManyThings](https://www.manythings.org/anki/).
 
-- Raw file: `spa.txt`
-- License: CC BY 2.0 FR
-- Attribution: Tatoeba and ManyThings
-- Split seed: `42`
+Preprocessing includes:
 
-The preprocessing pipeline applies Unicode and whitespace normalization, removes empty and duplicate pairs, filters long sequences and extreme length ratios, and creates deterministic splits.
+- Unicode and whitespace normalization;
+- removal of empty and duplicate sentence pairs;
+- maximum-length filtering;
+- extreme length-ratio filtering;
+- deterministic train, validation, and test splitting.
 
 | Split | Sentence pairs |
 |---|---:|
@@ -28,67 +30,90 @@ The preprocessing pipeline applies Unicode and whitespace normalization, removes
 | Test | 14,408 |
 | Total | 144,073 |
 
-> Tatoeba/ManyThings is not one of the assignment's recommended datasets. Instructor approval may be required.
+Split seed: `42`.
+
+> The dataset is distributed by ManyThings and originates from Tatoeba. Its listed license is CC BY 2.0 FR.
 
 ## Project Structure
 
 ```text
 .
-├── data/                   # Preparation, tokenization, dataset and batching
-├── model/                  # Encoder, attention, decoder and Seq2Seq model
-├── training/               # Configuration, Lightning training and evaluation
+├── data/
+│   ├── prepare_data.py
+│   ├── tokenization.py
+│   ├── vocab.py
+│   ├── dataset.py
+│   └── collate.py
+├── model/
+│   ├── encoder.py
+│   ├── attention.py
+│   ├── decoder.py
+│   └── seq2seq.py
+├── training/
+│   ├── config.py
+│   ├── lightning_module.py
+│   ├── train.py
+│   └── evaluate.py
 ├── artifacts/
-│   ├── data/               # Processed splits
-│   ├── tokenizers/         # SentencePiece models and vocabularies
-│   └── checkpoints/        # Trained Lightning checkpoints
-├── main.py                 # Interactive translation CLI
+│   ├── raw_data/
+│   ├── data/
+│   ├── tokenizers/
+│   └── checkpoints/
+├── main.py
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
 ```
 
+The `artifacts/` directory is excluded from Git because it contains datasets, tokenizers, and large checkpoint files.
+
 ## Setup
 
 Requirements:
 
-- Python 3.10+
+- Python 3.14+
 - `uv`
-- Optional CUDA-compatible GPU
+- optional CUDA-compatible GPU
 
-Install dependencies:
+Install the locked dependencies:
 
-```powershell
+```bash
 uv sync
+```
+
+If the server requires system TLS certificates:
+
+```bash
+uv sync --system-certs
 ```
 
 ## Data Preparation
 
-1. Download `spa-eng.zip` from [ManyThings](https://www.manythings.org/anki/).
-2. Extract `spa.txt` to:
+Download `spa-eng.zip` from [ManyThings](https://www.manythings.org/anki/) and extract `spa.txt` to:
 
 ```text
 artifacts/raw_data/spa.txt
 ```
 
-3. Prepare the data:
+Prepare deterministic dataset splits:
 
-```powershell
+```bash
 uv run python -m data.prepare_data
 ```
 
-4. Train the English and Spanish SentencePiece tokenizers:
+Train the English and Spanish SentencePiece tokenizers:
 
-```powershell
+```bash
 uv run python -m data.tokenization
 ```
 
-5. Serialize the vocabulary mappings:
+Create vocabulary information:
 
-```powershell
+```bash
 uv run python -m data.vocab
 ```
 
-SentencePiece uses a 16,000-token BPE vocabulary for each language.
+Separate 16,000-token BPE vocabularies are used for English and Spanish.
 
 | Special token | ID |
 |---|---:|
@@ -97,42 +122,9 @@ SentencePiece uses a 16,000-token BPE vocabulary for each language.
 | `<bos>` | 2 |
 | `<eos>` | 3 |
 
-## Training
+## Model Architecture
 
-Run a one-batch pipeline test:
-
-```powershell
-uv run python -m training.train --fast-dev-run
-```
-
-Start training with online W&B logging:
-
-```powershell
-uv run python -m training.train
-```
-
-Train without immediate W&B synchronization:
-
-```powershell
-uv run python -m training.train --offline
-```
-
-Resume from the latest checkpoint:
-
-```powershell
-uv run python -m training.train --resume artifacts/checkpoints/last.ckpt
-```
-
-Training includes:
-
-- PAD-masked cross-entropy loss;
-- teacher forcing;
-- Adam optimizer;
-- learning-rate scheduling;
-- gradient clipping;
-- early stopping;
-- best and last checkpoints;
-- W&B metric and configuration logging.
+The source sentence is encoded using a two-layer bidirectional GRU. The decoder is a two-layer unidirectional GRU that uses Bahdanau attention over all encoder outputs.
 
 Main hyperparameters:
 
@@ -146,133 +138,203 @@ Main hyperparameters:
 | Learning rate | 0.001 |
 | Teacher-forcing ratio | 0.5 |
 | Maximum sequence length | 60 |
-| Epochs | 3 |
+| Vocabulary size | 16,000 per language |
+| Gradient clipping | 1.0 |
+| Early-stopping patience | 5 |
 | Seed | 42 |
 
-The hyperparameters can be changed in `training/config.py`.
+The model contains approximately 30.1 million trainable parameters.
 
-On the tested CPU, one epoch required approximately 79 minutes. A CUDA GPU is recommended.
+## Training
+
+Run a one-batch pipeline test:
+
+```bash
+uv run python -m training.train --fast-dev-run
+```
+
+Train with online W&B logging:
+
+```bash
+uv run python -m training.train
+```
+
+Train with offline W&B logging:
+
+```bash
+uv run python -m training.train --offline
+```
+
+Resume a stopped training run:
+
+```bash
+uv run python -m training.train \
+  --resume artifacts/checkpoints/last.ckpt
+```
+
+Training uses:
+
+- PAD-masked cross-entropy loss;
+- teacher forcing;
+- Adam optimization;
+- learning-rate scheduling;
+- gradient clipping;
+- validation-based early stopping;
+- best and latest checkpoint saving;
+- W&B experiment tracking.
+
+Training stopped at epoch 12 because validation loss had not improved for five consecutive validation records. The best checkpoint was obtained at epoch 7:
+
+```text
+artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt
+```
+
+Best validation loss:
+
+```text
+3.1066
+```
 
 ## Evaluation
 
-Evaluate the best checkpoint:
+Evaluate using Beam Search:
 
-```powershell
-uv run python -m training.evaluate --checkpoint artifacts/checkpoints/epoch-02-val_loss-3.2653.ckpt
+```bash
+uv run python -m training.evaluate \
+  --checkpoint artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt \
+  --beam-size 5 \
+  --length-penalty 0.6 \
+  --offline
 ```
 
 Final results on all 14,408 test sentences:
 
 | Metric | Result |
 |---|---:|
-| Test loss | 3.2324 |
-| Token accuracy | 43.43% |
-| BLEU | 28.93 |
-| chrF | 51.03 |
+| Test loss | 3.0726 |
+| Token accuracy | 46.26% |
+| BLEU | 37.88 |
+| chrF | 58.31 |
+
+The final decoding configuration uses:
+
+- Beam Search size: `5`
+- length penalty: `0.6`
+- consecutive-token repetition blocking
+- maximum generated length: `60`
+
+Comparison with greedy decoding:
+
+| Decoding method | BLEU | chrF |
+|---|---:|---:|
+| Greedy decoding | 34.79 | 55.89 |
+| Beam Search | **37.88** | **58.31** |
+
+Beam Search improved BLEU by approximately `3.09` points and chrF by approximately `2.43` points.
+
+## Interactive Translation
+
+Run the interactive translator:
+
+```bash
+uv run python main.py \
+  --ckpt artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt \
+  --beam-size 5 \
+  --length-penalty 0.6
+```
 
 Example:
 
 ```text
-English: Please sit here.
-Reference: Sentaos aquí, por favor.
-Prediction: Por favor, siéntate aquí.
-```
+Enter English text (or 'exit'): I am a student.
+Spanish: Soy un estudiante.
 
-Best checkpoint:
+Enter English text (or 'exit'): The weather is good today.
+Spanish: Hoy hace buen tiempo.
 
-```text
-artifacts/checkpoints/epoch-02-val_loss-3.2653.ckpt
-```
+Enter English text (or 'exit'): I want to learn Spanish.
+Spanish: Quiero aprender español.
 
-Best validation loss: `3.2653`.
-
-Checkpoint files may be excluded from Git because of their size. The model can be reproduced using the documented training commands and `uv.lock`.
-
-## Interactive Translator
-
-Run the interactive CLI:
-
-```powershell
-uv run python main.py --ckpt artifacts/checkpoints/epoch-02-val_loss-3.2653.ckpt
-```
-
-Example session:
-
-```text
-Device: cpu
-Çıxmaq üçün 'exit' yazın.
-
-Enter English text (or 'exit'): Please sit here.
-Spanish: Por favor, siéntate aquí.
-
-Enter English text (or 'exit'): exit
-Program bağlandı.
+Enter English text (or 'exit'): We went to the store yesterday.
+Spanish: Ayer fuimos a la tienda.
 ```
 
 The CLI supports:
 
 - configurable checkpoint paths;
+- configurable Beam Search parameters;
 - CUDA when available;
 - CPU fallback;
-- empty-input handling;
+- empty-input validation;
 - long-input truncation;
-- `<eos>` stopping;
-- `exit` command.
+- EOS-based stopping;
+- the `exit` command.
 
 ## Weights & Biases
 
-Project:
+W&B project:
 
 https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation
 
-Training run:
+The project records:
 
-https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation/runs/ghtzs9ay
+- training and validation loss;
+- token accuracy;
+- learning rate;
+- model configuration;
+- BLEU and chrF;
+- sample translations.
 
-Evaluation run:
+An offline run can be synchronized later using:
 
-https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation/runs/06gqszlg
-
-The runs contain losses, token accuracy, learning rate, configuration, BLEU, chrF, and sample translations.
+```bash
+uv run wandb sync wandb/offline-run-<run-id>
+```
 
 ## Reproducibility
 
-The project uses:
+Reproducibility is supported through:
 
-- deterministic data splitting;
-- fixed seed `42`;
-- deterministic Lightning training;
-- serialized tokenizers and vocabularies;
-- saved checkpoints;
-- locked dependencies in `uv.lock`;
-- logged W&B configuration.
+- fixed random seed `42`;
+- deterministic dataset splitting;
+- saved SentencePiece models;
+- PyTorch Lightning checkpoints;
+- configuration logging;
+- W&B experiment tracking;
+- dependency locking through `uv.lock`.
 
-## Known Limitations
+To reproduce the complete pipeline:
 
-- Greedy decoding can produce suboptimal translations.
-- The model sometimes repeats words or produces incomplete sentences.
-- Input capitalization affects tokenization and translation.
-- The Tatoeba dataset contains some noisy references.
-- Three epochs are insufficient for fully stable translation.
-- Beam search and teacher-forcing decay are not implemented.
-- Training is slow without a GPU.
-
-## Quality Checks
-
-```powershell
-uv run ruff format --check .
-uv run ruff check .
-uv run python -c "import data, model, training; print('Imports passed')"
-```
-
-## Run Everything From Scratch
-
-```powershell
+```bash
 uv sync
 uv run python -m data.prepare_data
 uv run python -m data.tokenization
 uv run python -m data.vocab
 uv run python -m training.train
-uv run python -m training.evaluate --checkpoint artifacts/checkpoints/last.ckpt
-uv run python main.py --ckpt artifacts/checkpoints/last.ckpt
+```
+
+After training, use the best checkpoint path printed by the training command:
+
+```bash
+uv run python -m training.evaluate \
+  --checkpoint <best-checkpoint-path> \
+  --beam-size 5 \
+  --length-penalty 0.6
+```
+
+## Known Limitations
+
+- Long and syntactically complex sentences may lose information.
+- Rare words may be translated incorrectly or produce malformed subwords.
+- The Tatoeba/ManyThings corpus contains noisy or uncommon reference translations.
+- Beam Search improves sequence selection but cannot correct knowledge the model did not learn.
+- Beam Search is slower than greedy decoding.
+- Translation quality is sensitive to the coverage and quality of the training dataset.
+
+## Quality Checks
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run python -c "import data, model, training; print('Imports passed')"
 ```
