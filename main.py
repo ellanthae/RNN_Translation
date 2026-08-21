@@ -27,6 +27,18 @@ def parse_arguments() -> argparse.Namespace:
         default=None,
         help="Maksimum source və generated sequence uzunluğu.",
     )
+    parser.add_argument(
+        "--beam-size",
+        type=int,
+        default=5,
+        help="Beam search namizədlərinin sayı.",
+    )
+    parser.add_argument(
+        "--length-penalty",
+        type=float,
+        default=0.6,
+        help="Beam search uzunluq cəzası.",
+    )
     return parser.parse_args()
 
 
@@ -75,6 +87,8 @@ def translate(
     target_tokenizer,
     max_length: int,
     device: torch.device,
+    beam_size: int,
+    length_penalty: float,
 ) -> str:
     source_ids, source_lengths, source_mask = prepare_source(
         text=text,
@@ -83,11 +97,13 @@ def translate(
         device=device,
     )
 
-    generated_ids, _ = module.model.greedy_decode(
+    generated_ids, _ = module.model.beam_search_decode(
         source_ids=source_ids,
         source_lengths=source_lengths,
         source_mask=source_mask,
         max_length=max_length,
+        beam_size=beam_size,
+        length_penalty=length_penalty,
     )
 
     return target_tokenizer.decode(generated_ids[0].cpu().tolist()).strip()
@@ -114,6 +130,12 @@ def main() -> None:
         source_vocab_size=source_tokenizer.vocab_size,
         target_vocab_size=target_tokenizer.vocab_size,
     )
+
+    if arguments.beam_size < 1:
+        raise ValueError("beam-size ən azı 1 olmalıdır.")
+
+    if arguments.length_penalty < 0.0:
+        raise ValueError("length-penalty mənfi ola bilməz.")
 
     module = TranslationLightningModule.load_from_checkpoint(
         checkpoint_path=arguments.ckpt,
@@ -148,6 +170,8 @@ def main() -> None:
             target_tokenizer=target_tokenizer,
             max_length=max_length,
             device=device,
+            beam_size=arguments.beam_size,
+            length_penalty=arguments.length_penalty,
         )
 
         if spanish_translation:

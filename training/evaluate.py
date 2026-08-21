@@ -46,6 +46,19 @@ def parse_arguments() -> argparse.Namespace:
         default=10,
         help="Terminal və W&B üçün nümunə tərcümə sayı.",
     )
+    parser.add_argument(
+        "--beam-size",
+        type=int,
+        default=1,
+        help="1 greedy decoding, 1-dən böyük olduqda beam search.",
+    )
+    parser.add_argument(
+        "--length-penalty",
+        type=float,
+        default=0.6,
+        help="Beam search uzunluq cəzası.",
+    )
+
     return parser.parse_args()
 
 
@@ -80,6 +93,8 @@ def evaluate(
     device: torch.device,
     max_length: int,
     limit_batches: int | None,
+    beam_size: int,
+    length_penalty: float,
 ) -> tuple[dict[str, float], list[str], list[str], list[str]]:
     loss_function = nn.CrossEntropyLoss(
         ignore_index=PAD_ID,
@@ -109,6 +124,7 @@ def evaluate(
             decoder_inputs = require_tensor(batch, "decoder_inputs")
             decoder_targets = require_tensor(batch, "decoder_targets")
 
+            # Loss və token accuracy hesablaması.
             logits, _ = module.model(
                 source_ids=source_ids,
                 source_lengths=source_lengths,
@@ -131,15 +147,19 @@ def evaluate(
                 (predicted_tokens.eq(decoder_targets) & valid_mask).sum().item()
             )
 
-            generated_ids, _ = module.model.greedy_decode(
+            # beam_size=1 olduqda greedy, daha böyük olduqda Beam Search.
+            generated_ids, _ = module.model.beam_search_decode(
                 source_ids=source_ids,
                 source_lengths=source_lengths,
                 source_mask=source_mask,
                 max_length=max_length,
+                beam_size=beam_size,
+                length_penalty=length_penalty,
             )
 
             for token_ids in generated_ids.cpu().tolist():
-                predictions.append(target_tokenizer.decode(token_ids))
+                prediction = target_tokenizer.decode(token_ids).strip()
+                predictions.append(prediction)
 
             batch_references = batch["tgt_text"]
             batch_sources = batch["src_text"]
@@ -193,6 +213,12 @@ def main() -> None:
     if arguments.samples < 0:
         raise ValueError("samples mənfi ola bilməz.")
 
+    if arguments.beam_size < 1:
+        raise ValueError("beam-size ən azı 1 olmalıdır.")
+
+    if arguments.length_penalty < 0.0:
+        raise ValueError("length-penalty mənfi ola bilməz.")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     source_tokenizer, target_tokenizer = build_tokenizers(config)
@@ -222,6 +248,7 @@ def main() -> None:
         map_location=device,
     )
     module.to(device)
+    module.eval()
 
     metrics, sources, references, predictions = evaluate(
         module=module,
@@ -230,6 +257,8 @@ def main() -> None:
         device=device,
         max_length=config.max_length,
         limit_batches=arguments.limit_batches,
+        beam_size=arguments.beam_size,
+        length_penalty=arguments.length_penalty,
     )
 
     print("\nMetrics:")
@@ -254,12 +283,21 @@ def main() -> None:
         name=f"{config.wandb_run_name}-evaluation",
         job_type="evaluation",
         mode=run_mode,
-        config=serialize_config(config),
+        config={
+            **serialize_config(config),
+            "decoding": ("greedy" if arguments.beam_size == 1 else "beam-search"),
+            "beam_size": arguments.beam_size,
+            "length_penalty": arguments.length_penalty,
+        },
     ) as run:
         run.log(metrics)
 
         table = wandb.Table(
-            columns=["English", "Reference Spanish", "Predicted Spanish"]
+            columns=[
+                "English",
+                "Reference Spanish",
+                "Predicted Spanish",
+            ]
         )
 
         for index in range(sample_count):
