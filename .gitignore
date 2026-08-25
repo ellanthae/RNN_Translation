@@ -12,3 +12,4 @@ artifacts/data/*.es
 artifacts/checkpoints/
 artifacts/data/metadata.json
 artifacts/tokenizers/
+/artifacts/
