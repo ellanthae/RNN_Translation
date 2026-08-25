@@ -1,27 +1,23 @@
 # English-to-Spanish RNN Machine Translation
 
-An English-to-Spanish neural machine translation system implemented with PyTorch, PyTorch Lightning, SentencePiece, Weights & Biases, and `uv`.
+English-to-Spanish neural machine translation using PyTorch, PyTorch Lightning, SentencePiece and Weights & Biases.
 
-The model uses:
+## Architecture
 
-- a two-layer bidirectional GRU encoder;
-- Bahdanau additive attention;
-- a two-layer GRU decoder;
-- teacher forcing during training;
-- Beam Search during inference;
-- length normalization and consecutive-token repetition blocking.
+- Two-layer bidirectional GRU encoder
+- Bahdanau additive attention
+- Two-layer GRU decoder
+- Teacher forcing during training
+- Beam Search with length normalization during inference
+- Consecutive-token repetition blocking
 
 ## Dataset
 
-The project uses English-Spanish sentence pairs from the [Tatoeba corpus distributed by ManyThings](https://www.manythings.org/anki/).
+English-Spanish sentence pairs are taken from the [Tatoeba/ManyThings dataset](https://www.manythings.org/anki/).
 
-Preprocessing includes:
-
-- Unicode and whitespace normalization;
-- removal of empty and duplicate sentence pairs;
-- maximum-length filtering;
-- extreme length-ratio filtering;
-- deterministic train, validation, and test splitting.
+Tatoeba/ManyThings was selected because it is manageable in size,
+contains conversational sentence pairs, and is suitable for training
+an RNN baseline with limited computational resources.
 
 | Split | Sentence pairs |
 |---|---:|
@@ -30,42 +26,17 @@ Preprocessing includes:
 | Test | 14,408 |
 | Total | 144,073 |
 
-Split seed: `42`.
-
-> The dataset is distributed by ManyThings and originates from Tatoeba. Its listed license is CC BY 2.0 FR.
+Preprocessing removes empty and duplicate pairs, normalizes text, filters long sequences and creates deterministic splits using seed `42`.
 
 ## Project Structure
 
 ```text
-.
-├── data/
-│   ├── prepare_data.py
-│   ├── tokenization.py
-│   ├── vocab.py
-│   ├── dataset.py
-│   └── collate.py
-├── model/
-│   ├── encoder.py
-│   ├── attention.py
-│   ├── decoder.py
-│   └── seq2seq.py
-├── training/
-│   ├── config.py
-│   ├── lightning_module.py
-│   ├── train.py
-│   └── evaluate.py
-├── artifacts/
-│   ├── raw_data/
-│   ├── data/
-│   ├── tokenizers/
-│   └── checkpoints/
-├── main.py
-├── pyproject.toml
-├── uv.lock
-└── README.md
+data/           Data preparation, tokenization, dataset and batching
+model/          Encoder, Bahdanau attention, decoder and Seq2Seq
+training/       Configuration, Lightning training and evaluation
+main.py         Interactive translation
+artifacts/      Data, tokenizers and checkpoints (excluded from Git)
 ```
-
-The `artifacts/` directory is excluded from Git because it contains datasets, tokenizers, and large checkpoint files.
 
 ## Setup
 
@@ -73,58 +44,36 @@ Requirements:
 
 - Python 3.14+
 - `uv`
-- optional CUDA-compatible GPU
-
-Install the locked dependencies:
+- Optional CUDA-compatible GPU
 
 ```bash
 uv sync
 ```
 
-If the server requires system TLS certificates:
-
-```bash
-uv sync --system-certs
-```
-
-## Data Preparation
-
-Download `spa-eng.zip` from [ManyThings](https://www.manythings.org/anki/) and extract `spa.txt` to:
+Download `spa-eng.zip` from ManyThings and place the extracted file at:
 
 ```text
 artifacts/raw_data/spa.txt
 ```
 
-Prepare deterministic dataset splits:
+Prepare the data and train the SentencePiece tokenizers:
 
 ```bash
 uv run python -m data.prepare_data
-```
-
-Train the English and Spanish SentencePiece tokenizers:
-
-```bash
 uv run python -m data.tokenization
-```
-
-Create vocabulary information:
-
-```bash
 uv run python -m data.vocab
 ```
 
 Separate 16,000-token BPE vocabularies are used for English and Spanish.
 
-| Special token | ID |
+| Token | ID |
 |---|---:|
 | `<pad>` | 0 |
 | `<unk>` | 1 |
 | `<bos>` | 2 |
 | `<eos>` | 3 |
 
-## Model Architecture
-
-The source sentence is encoded using a two-layer bidirectional GRU. The decoder is a two-layer unidirectional GRU that uses Bahdanau attention over all encoder outputs.
+## Training
 
 Main hyperparameters:
 
@@ -133,112 +82,67 @@ Main hyperparameters:
 | Embedding dimension | 256 |
 | Hidden size | 512 |
 | GRU layers | 2 |
-| Dropout | 0.2 |
+| Dropout | 0.3 |
 | Batch size | 64 |
-| Learning rate | 0.001 |
+| Initial learning rate | 0.0005 |
 | Teacher-forcing ratio | 0.5 |
-| Maximum sequence length | 60 |
-| Vocabulary size | 16,000 per language |
+| Maximum length | 60 |
+| Vocabulary size | 16,000 |
 | Gradient clipping | 1.0 |
 | Early-stopping patience | 5 |
-| Seed | 42 |
 
-The model contains approximately 30.1 million trainable parameters.
-
-## Training
-
-Run a one-batch pipeline test:
+Run a one-batch test:
 
 ```bash
-uv run python -m training.train --fast-dev-run
+uv run python -m training.train --fast-dev-run --offline
 ```
 
-Train with online W&B logging:
-
-```bash
-uv run python -m training.train
-```
-
-Train with offline W&B logging:
+Start training:
 
 ```bash
 uv run python -m training.train --offline
 ```
 
-Resume a stopped training run:
+Resume interrupted training:
 
 ```bash
 uv run python -m training.train \
+  --offline \
   --resume artifacts/checkpoints/last.ckpt
 ```
 
-Training uses:
-
-- PAD-masked cross-entropy loss;
-- teacher forcing;
-- Adam optimization;
-- learning-rate scheduling;
-- gradient clipping;
-- validation-based early stopping;
-- best and latest checkpoint saving;
-- W&B experiment tracking.
-
-Training stopped at epoch 12 because validation loss had not improved for five consecutive validation records. The best checkpoint was obtained at epoch 7:
+The best model was selected at epoch 5:
 
 ```text
-artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt
+artifacts/checkpoints_exp2/epoch-05-val_loss-2.9262.ckpt
 ```
 
-Best validation loss:
-
-```text
-3.1066
-```
+Best validation loss: `2.9262`.
 
 ## Evaluation
 
-Evaluate using Beam Search:
-
 ```bash
 uv run python -m training.evaluate \
-  --checkpoint artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt \
+  --checkpoint artifacts/checkpoints/epoch-05-val_loss-2.9262.ckpt \
   --beam-size 5 \
   --length-penalty 0.6 \
   --offline
 ```
 
-Final results on all 14,408 test sentences:
+Results on all 14,408 test sentences:
 
 | Metric | Result |
 |---|---:|
-| Test loss | 3.0726 |
-| Token accuracy | 46.26% |
-| BLEU | 37.88 |
-| chrF | 58.31 |
-
-The final decoding configuration uses:
-
-- Beam Search size: `5`
-- length penalty: `0.6`
-- consecutive-token repetition blocking
-- maximum generated length: `60`
-
-Comparison with greedy decoding:
-
-| Decoding method | BLEU | chrF |
-|---|---:|---:|
-| Greedy decoding | 34.79 | 55.89 |
-| Beam Search | **37.88** | **58.31** |
-
-Beam Search improved BLEU by approximately `3.09` points and chrF by approximately `2.43` points.
+| Test loss | 2.8963 |
+| Token accuracy | 47.31% |
+| BLEU | 38.88 |
+| chrF | 58.97 |
 
 ## Interactive Translation
 
-Run the interactive translator:
-
 ```bash
 uv run python main.py \
-  --ckpt artifacts/checkpoints/epoch-07-val_loss-3.1066.ckpt \
+  --ckpt artifacts/checkpoints/epoch-05-val_loss-2.9262.ckpt \
   --beam-size 5 \
   --length-penalty 0.6
 ```
@@ -246,90 +150,41 @@ uv run python main.py \
 Example:
 
 ```text
-Enter English text (or 'exit'): I am a student.
-Spanish: Soy un estudiante.
+English: Where is the train station?
+Spanish: ¿Dónde está la estación de trenes?
 
-Enter English text (or 'exit'): The weather is good today.
-Spanish: Hoy hace buen tiempo.
-
-Enter English text (or 'exit'): I want to learn Spanish.
-Spanish: Quiero aprender español.
-
-Enter English text (or 'exit'): We went to the store yesterday.
-Spanish: Ayer fuimos a la tienda.
+English: Although he was tired, he continued working until midnight.
+Spanish: Aunque estaba cansado, él siguió trabajando hasta la medianoche.
 ```
 
-The CLI supports:
+## Experiment Tracking
 
-- configurable checkpoint paths;
-- configurable Beam Search parameters;
-- CUDA when available;
-- CPU fallback;
-- empty-input validation;
-- long-input truncation;
-- EOS-based stopping;
-- the `exit` command.
+Training configuration and metrics are logged in the [W&B project](https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation).
 
-## Weights & Biases
+Final evaluation run:
+https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation/runs/ad1bd6tf
 
-W&B project:
-
-https://wandb.ai/belnaz456-khazar-university/rnn-en-es-translation
-
-The project records:
-
-- training and validation loss;
-- token accuracy;
-- learning rate;
-- model configuration;
-- BLEU and chrF;
-- sample translations.
-
-An offline run can be synchronized later using:
-
-```bash
-uv run wandb sync wandb/offline-run-<run-id>
-```
+Logged information includes loss, token accuracy, learning rate, BLEU, chrF and sample translations.
 
 ## Reproducibility
 
-Reproducibility is supported through:
+The project uses:
 
-- fixed random seed `42`;
+- fixed seed `42`;
 - deterministic dataset splitting;
-- saved SentencePiece models;
-- PyTorch Lightning checkpoints;
-- configuration logging;
-- W&B experiment tracking;
-- dependency locking through `uv.lock`.
+- serialized SentencePiece tokenizers;
+- Lightning checkpoints;
+- locked dependencies in `uv.lock`;
+- W&B configuration logging.
 
-To reproduce the complete pipeline:
+The `artifacts/` directory is excluded from Git because it contains the dataset, tokenizers and large checkpoints. The complete pipeline can be reproduced using the documented commands.
 
-```bash
-uv sync
-uv run python -m data.prepare_data
-uv run python -m data.tokenization
-uv run python -m data.vocab
-uv run python -m training.train
-```
+## Limitations
 
-After training, use the best checkpoint path printed by the training command:
-
-```bash
-uv run python -m training.evaluate \
-  --checkpoint <best-checkpoint-path> \
-  --beam-size 5 \
-  --length-penalty 0.6
-```
-
-## Known Limitations
-
-- Long and syntactically complex sentences may lose information.
-- Rare words may be translated incorrectly or produce malformed subwords.
-- The Tatoeba/ManyThings corpus contains noisy or uncommon reference translations.
-- Beam Search improves sequence selection but cannot correct knowledge the model did not learn.
-- Beam Search is slower than greedy decoding.
-- Translation quality is sensitive to the coverage and quality of the training dataset.
+- Long or complex sentences may lose information
+- Rare words may produce incorrect subword combinations
+- The dataset contains some noisy or uncommon translations
+- Beam Search is slower than greedy decoding
 
 ## Quality Checks
 

@@ -1,8 +1,10 @@
 .venv/
 .idea/
 __pycache__/
+.ruff_cache/
 *.py[cod]
 wandb/
+
 
 artifacts/raw_data/
 artifacts/data/*.en

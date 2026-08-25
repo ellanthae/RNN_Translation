@@ -25,14 +25,14 @@ class TrainingConfig:
     embedding_dim: int = 256
     hidden_size: int = 512
     num_layers: int = 2
-    dropout: float = 0.2
+    dropout: float = 0.3
     bidirectional: bool = True
 
     # 6. Training parametrləri
     batch_size: int = 64
-    learning_rate: float = 1e-3
-    max_epochs: int = 3
-    early_stopping_patience: int = 2
+    learning_rate: float = 5e-4
+    max_epochs: int = 15
+    early_stopping_patience: int = 5
     teacher_forcing_ratio: float = 0.5
     gradient_clip_val: float = 1.0
     wandb_project: str = "rnn-en-es-translation"
