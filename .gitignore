@@ -5,11 +5,4 @@ __pycache__/
 *.py[cod]
 wandb/
 
-
-artifacts/raw_data/
-artifacts/data/*.en
-artifacts/data/*.es
-artifacts/checkpoints/
-artifacts/data/metadata.json
-artifacts/tokenizers/
-/artifacts/
+artifacts/

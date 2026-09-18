@@ -25,7 +25,7 @@ class TrainingConfig:
     embedding_dim: int = 256
     hidden_size: int = 512
     num_layers: int = 2
-    dropout: float = 0.3
+    dropout: float = 0.35
     bidirectional: bool = True
 
     # 6. Training parametrləri
